@@ -7,9 +7,12 @@ from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 from numpy import mean
 from numpy import std
-from sklearn.metrics import f1_score, log_loss, precision_score, recall_score
+from sklearn.metrics import f1_score, log_loss, precision_score, recall_score, accuracy_score
 from sklearn.decomposition import PCA
 from sklearn.datasets import load_wine
+from sklearn.utils import shuffle
+import numpy as np
+import random
 
 st.title("PCA + LOGISTIC REGRESSION WITH STREAMLIT")
 """
@@ -21,6 +24,8 @@ df = file_upload
 df.columns = dataset.feature_names
 df["target"] = dataset.target
 st.dataframe(df)
+df = df.sample(frac=1)
+
 
 """
 # PCA application:
@@ -35,7 +40,8 @@ y = df.iloc[:, -1]
 
 def apply_PCA(X, n):
     pca = PCA(n_components=n)
-    return pca.fit_transform(X)
+    x = pca.fit_transform(X)
+    return x
 
 
 if (is_PCA_applied == "Yes"):
@@ -53,7 +59,8 @@ def train_test():
         X_train, X_test, y_train, y_test = train_test_split(X, y,
                                                             train_size=train_size,
                                                             random_state=0)
-        model = LogisticRegression(random_state=0)
+        model = LogisticRegression(
+            solver='lbfgs', max_iter=1000, random_state=0)
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         y_pred_prob = model.predict_proba(X_test)
@@ -86,7 +93,8 @@ def CrossValidation(X, y, cv):
     run = st.button("Click here to run!!")
     if run:
         if int(num_K) > 1:
-            model = LogisticRegression()
+            model = LogisticRegression(
+                solver='lbfgs', max_iter=1000, random_state=0)
             scores = cross_val_score(
                 model, X, y,
                 cv=cv,
@@ -125,6 +133,56 @@ st.header("Which method you want to use:")
 method = st.selectbox(
     "Please select: ", ("Train/Test Split", "KFold Cross Validation"))
 
+
+def FindTheBestNComponents():
+    X = np.array(df.iloc[:, :-1])
+    y = np.array(df.iloc[:, -1])
+    f1_in_each_num_of_dimension = []
+    acc_in_each_num_of_dimension = []
+    n_arr = []
+    id = 0
+    for n in range(1, len(df.columns)):
+        f1 = []
+        acc = []
+        kf = KFold(n_splits=5, random_state=None)
+        for train_index, test_index in kf.split(X):
+            id += 1
+            X_train, X_test = X[train_index, :], X[test_index, :]
+            y_train, y_test = y[train_index], y[test_index]
+            pca = PCA(n)
+            pca.fit(X_train)
+            X_train, X_test = pca.transform(X_train), pca.transform(X_test)
+            model = LogisticRegression(
+                solver='lbfgs', max_iter=1000, random_state=0)
+            model.fit(X_train, y_train)
+            f1.append(f1_score(y_test, model.predict(X_test), average='macro'))
+            acc.append(accuracy_score(y_test, model.predict(X_test)))
+        n_arr.append(n)
+        f1_in_each_num_of_dimension.append(np.mean(np.array(f1)))
+        acc_in_each_num_of_dimension.append(np.mean(np.array(acc)))
+    st.write("The most efficient number of components with f1_score is: ",
+             np.array(f1_in_each_num_of_dimension).argmax()+1)
+    Visualization(n_arr, f1_in_each_num_of_dimension, "F1 Score")
+    st.write("The most efficient number of components with accuracy score is: ",
+             np.array(acc_in_each_num_of_dimension).argmax()+1)
+    Visualization(n_arr, acc_in_each_num_of_dimension, "Accuracy Score")
+
+
+def Visualization(x, y, xtitle):
+    fig, ax = plt.subplots(figsize=(16, 8))
+    ind = np.arange(len(y))
+    ax.bar(ind, y, 0.65, color=[
+           "#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])])
+    plt.suptitle("COMPARISON BETWEEN METRIC OF N COMPONENTS")
+    ax.spines.top.set_visible(False)
+    ax.set_xticks(ind, x)
+    ax.set_xlabel("Number of components")
+    ax.set_ylabel(xtitle)
+    for i, v in enumerate(np.array(y).round(2)):
+        ax.text(i - 0.20, v + 0.03, str(v), color='black', fontweight='bold')
+    st.pyplot(fig)
+
+
 if method == 'Train/Test Split':
     """
     # Train/Test split:
@@ -135,6 +193,7 @@ else:
     """
     # KFold:
     """
-    num_K = st.slider('Number of K folds: ', 2, 12, 7)
+    num_K = st.slider('Number of K folds: ', 2, 12, 5)
     cross_validation = KFold(n_splits=int(num_K), shuffle=True)
     CrossValidation(X, y, cross_validation)
+    FindTheBestNComponents()
